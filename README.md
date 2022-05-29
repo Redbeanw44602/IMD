@@ -3,6 +3,6 @@
 
 ### wip.
 - [x] netease music
-- [ ] qq music
+- [x] qq music
 - [ ] kuwo music
 - [ ] config file

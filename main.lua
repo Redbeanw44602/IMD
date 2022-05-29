@@ -41,9 +41,10 @@ function ExecPf(t)
     t.use(chosed_download_what)
 end
 
-function HttpGet(url,wfunc,needStat)
+function HttpGet(url,payload,needStat)
     local tmp = ''
-    local wtfunc = wfunc or function (cont)
+    payload = payload or {}
+    local wtfunc = payload.writefunction or function (cont)
         tmp = tmp .. cont
     end
     needStat = needStat or 200
@@ -60,15 +61,18 @@ function HttpGet(url,wfunc,needStat)
         ssl_verifyhost = false,
         writefunction = wtfunc
     }
+    if payload.cookie then
+        request:setopt_cookie(payload.cookie)
+    end
     request:perform()
     if request:getinfo_response_code() ~= needStat then
         return nil
     end
     if needStat == 301 or needStat == 302 then
-        return HttpGet(request:getinfo_redirect_url(),wfunc)
+        return HttpGet(request:getinfo_redirect_url(),payload)
     end
     request:close()
-    if not wfunc then
+    if not payload.writefunction then
         return tmp
     end
     return 1
@@ -197,7 +201,9 @@ NeteaseMusic = {
         if result and result.data[1].url then
             local music_file = Fs:open(string.format('download/%s.%s',music.name,result.data[1].encodeType),'w+b')
             pLog:Info('正在下载歌曲 > %s ...',result.data[1].encodeType)
-            local stat = HttpGet(result.data[1].url,music_file)
+            local stat = HttpGet(result.data[1].url,{
+                writefunction = music_file
+            })
             music_file:close()
             if stat then
                 NeteaseMusic.get_lrc(music)
@@ -209,7 +215,9 @@ NeteaseMusic = {
         --- down_music - method B:
         pLog:Info('正在下载歌曲 > mp3 ...')
         local music_file = Fs:open(string.format('download/%s.mp3',music.name),'w+b')
-        local stat = HttpGet(string.format('https://music.163.com/song/media/outer/url?id=%s.mp3',music.id),music_file,302)
+        local stat = HttpGet(string.format('https://music.163.com/song/media/outer/url?id=%s.mp3',music.id),{
+            writefunction = music_file
+        },302)
         music_file:close()
         if not stat then
             pLog:Error('音乐下载失败。')
@@ -294,12 +302,210 @@ NeteaseMusic = {
 }
 
 QQMusic = {
-    ApiAddr = '',
-    use = function ()
+    ApiAddr = 'https://music-qq.amd.rocks',
+    use = function (dw)
         local sLog = Logger:new('QQ')
+        if dw == '1' then
+            sLog:Info('请输入单曲ID，如有多首请用逗号分割：')
+            io.write('(n) > ')
+            local need_download_ids = io.read()
+            string.gsub(need_download_ids,'，',',')
+            local details = {}
+            for n,id in pairs(string.split(need_download_ids,',')) do
+                details[#details+1] = JSON.decode(HttpGet(string.format('%s/song?songmid=%s',QQMusic.ApiAddr,id)))
+                if not details[#details] or not details[#details].result == 100 then
+                    mLog:Error('HttpGet 失败！')
+                    return
+                end
+            end
+            QQMusic.printMusicDetails(details,QQMusic.get_music)
+        elseif dw == '2' then
+            local playlist_id = 0
+            if gl_using_cookie then
+                sLog:Info('选择一个歌单，也可以输入歌单ID：')
+                local playlists = JSON.decode(HttpGet(string.format('%s/user/songlist?id=%s&ownCookie=1',QQMusic.ApiAddr,gl_using_cookie.qq),{
+                    cookie = gl_using_cookie.cookie
+                }))
+                if not playlists then
+                    sLog:Error('playlist 解析失败！')
+                    return
+                end
+                sLog:Info('0. 手动输入')
+                for k,v in pairs(playlists.data.list) do
+                    sLog:Info('%s. %s',k,v.diss_name)
+                end
+                io.write(string.format('(0-%s) > ',#playlists.data.list))
+                local chose_what = tonumber(io.read())
+                if chose_what == 0 then
+                    io.write('(n) > ')
+                    playlist_id = tonumber(io.read())
+                else
+                    playlist_id = tonumber(playlists.data.list[chose_what].tid)
+                end
+            else
+                sLog:Info('请输入需要下载的歌单ID：')
+                io.write('(n) > ')
+                playlist_id = tonumber(io.read())
+            end
+            local playlist_detail = JSON.decode(HttpGet(string.format('%s/songlist?id=%s&ownCookie=1',QQMusic.ApiAddr,playlist_id)))
+            if not playlist_detail then
+                sLog:Error('playlist 解析失败！')
+                return
+            end
+            if playlist_detail.result == 100 then
+                sLog:Info('歌单已选定，名称：%s',playlist_detail.data.dissname)
+            else
+                sLog:Info('获取歌单信息失败')
+                return
+            end
+            local details = {}
+            for n,cont in pairs(playlist_detail.data.songlist) do
+                details[#details+1] = JSON.decode(HttpGet(string.format('%s/song?songmid=%s',QQMusic.ApiAddr,cont.songmid)))
+                if not details[#details] or not details[#details].result == 100 then
+                    mLog:Error('HttpGet 失败！')
+                    return
+                end
+            end
+            QQMusic.printMusicDetails(details,QQMusic.get_music)
+        end
     end,
     login = function ()
+        local pLog = Logger:new('Login')
+        local suffix = 'qq'
+        local cookies = {}
+        for n,name in pairs(Fs:getDirectoryList('cookies')) do
+            local a = string.sub(name,string.len('cookies\\')+1)
+            if string.sub(a,-1*string.len('.'..suffix)) == '.'..suffix then
+                cookies[#cookies+1] = string.gsub(a,'.qq','')
+            end
+        end
+        pLog:Info('是否需要登录？')
+        pLog:Info('0. 不需要')
+        for n,cookiename in pairs(cookies) do
+            pLog:Info('%s. 使用 %s 的 cookie',n,cookiename)
+        end
+
+        io.write(string.format('(0-%s) > ',#cookies))
+        local use_who_cookie = tonumber(io.read())
+        if use_who_cookie == 0 then
+            return
+        end
+
+        local info = JSON.decode(Fs:readFrom(string.format('cookies/%s.%s',cookies[use_who_cookie],suffix)))
+        pLog:Info('正在检查登录...')
+        local login = JSON.decode(HttpGet(string.format('%s/user/detail?id=%s&ownCookie=1',QQMusic.ApiAddr,info.qq),{
+            cookie = info.cookie
+        }))
+
+        if not login then
+            mLog:Error('login 解析失败！')
+            return
+        end
+
+        if login.code ~= 0 then
+            pLog:Error('登录失败')
+            return
+        else
+            pLog:Info('登录成功，欢迎 %s 回来。',login.data.creator.nick)
+            gl_using_cookie = info
+        end
+    end,
+    get_music = function (music)
+        local pLog = Logger:new('Download')
         
+        local type = ''
+        local fm = ''
+        if music.fileinfo.size_flac > 0 then
+            type = 'flac'
+            fm = 'flac'
+            pLog:Info('正在下载歌曲 > flac ...')
+        elseif music.fileinfo.size_320mp3 > 0 then
+            type = '320'
+            fm = 'mp3'
+            pLog:Info('正在下载歌曲 > mp3-320 ...')
+        elseif music.fileinfo.size_128mp3 > 0 then
+            type = '128'
+            fm = 'mp3'
+            pLog:Info('正在下载歌曲 > mp3-128 ...')
+        else
+            pLog:Error('无法下载此歌曲！')
+            return
+        end
+
+        local get = JSON.decode(HttpGet(string.format('%s/song/url?id=%s&type=%s&mediaId=%s&ownCookie=1',QQMusic.ApiAddr,music.id,type,music.fileinfo.media_mid),{
+            cookie = gl_using_cookie.cookie
+        }))
+        if get.result ~= 100 then
+            pLog:Error('获取下载链接失败！')
+            return
+        end
+
+        local file = Fs:open(string.format('download/%s.%s',music.name,fm),'w+b')
+        local result = HttpGet(get.data,{
+            writefunction = file,
+            cookie = gl_using_cookie.cookie
+        })
+        file:close()
+
+        if result then
+            QQMusic.get_lrc(music)
+        else
+            pLog:Error('下载失败！')
+        end
+    end,
+    get_lrc = function (music)
+        local pLog = Logger:new('Download')
+
+        pLog:Info('正在下载歌词 > lrc ...')
+        local result = JSON.decode(HttpGet(string.format('%s/lyric?songmid=%s',QQMusic.ApiAddr,music.id)))
+        if not result then
+            pLog:Error('lrc 解析失败！')
+            return
+        end
+        if not result.data.lyric then --?, may not.
+            pLog:Warn('该歌曲没有歌词')
+            return
+        end
+        Fs:writeTo(string.format('download/%s.lrc',music.name),result.data.lyric)
+    end,
+    printMusicDetails = function (details,callback)
+        local pLog = Logger:new('Detail')
+        local function getStr_singerlist(list)
+            local rtn = ''
+            for k,v in pairs(list) do
+                rtn = rtn .. v.name .. ', '
+            end
+            return string.sub(rtn,0,string.len(rtn)-2)
+        end
+        local function getStr_feestat(pay)
+            if pay.pay_play == 1 then
+                return '付费'
+            elseif pay.pay_play == 0 and pay.pay_down == 1 then
+                return '付费下载'
+            else
+                return '免费'
+            end
+        end
+        local function getStr_timelong(iv)
+            local a = {math.modf(iv/60)}
+            return string.format('%s分%s秒',a[1],math.floor(60*a[2]))
+        end
+        for n,cont in pairs(details) do
+            pLog:Info('')
+            pLog:Info('—[%s]——————————————————————————',n)
+            pLog:Info('名称：%s',cont.data.track_info.name)
+            pLog:Info('歌手：%s',getStr_singerlist(cont.data.track_info.singer))
+            pLog:Info('限制情况：%s',getStr_feestat(cont.data.track_info.pay))
+            pLog:Info('时长：%s',getStr_timelong(cont.data.track_info.interval))
+            -- pLog:Info('类型：%s',getStr_coverType(cont.originCoverType))
+            -- pLog:Info('版权：%s',getStr_copyright(cont.noCopyrightRcmd))
+            pLog:Info('')
+            callback {
+                id = cont.data.track_info.mid,
+                fileinfo = cont.data.track_info.file,
+                name = string.delete(cont.data.track_info.name,'\\','/',':','?','*','"','<','>','|')
+            }
+        end
     end
 }
 

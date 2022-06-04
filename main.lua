@@ -3,7 +3,7 @@ package.cpath = package.cpath..';.\\lib\\?.dll'
 
 local Fs = require "filesystem"
 local curl = require "cURL"
-local JSON = require "dkjson"
+local JSON = require "JSON"
 require "logger"
 require "native-type-helper"
 
@@ -252,17 +252,6 @@ NeteaseMusic = {
             end
             return string.sub(rtn,0,string.len(rtn)-2)
         end
-        local function getStr_feestat(stat)
-            if stat == 0 then
-                return '免费'
-            elseif stat == 1 then
-                return 'VIP歌曲'
-            elseif stat == 4 then
-                return '需要购买专辑'
-            elseif stat == 8 then
-                return '非会员低音质'
-            end
-        end
         local function getStr_timelong(dt)
             local a = {math.modf(dt/1000/60)}
             return string.format('%s分%s秒',a[1],math.floor(60*a[2]))
@@ -288,7 +277,6 @@ NeteaseMusic = {
             pLog:Info('—[%s]——————————————————————————',key)
             pLog:Info('名称：%s',cont.name)
             pLog:Info('歌手：%s',getStr_singerlist(cont.ar))
-            pLog:Info('限制情况：%s',getStr_feestat(cont.fee))
             pLog:Info('时长：%s',getStr_timelong(cont.dt))
             pLog:Info('类型：%s',getStr_coverType(cont.originCoverType))
             pLog:Info('版权：%s',getStr_copyright(cont.noCopyrightRcmd))
@@ -477,15 +465,6 @@ QQMusic = {
             end
             return string.sub(rtn,0,string.len(rtn)-2)
         end
-        local function getStr_feestat(pay)
-            if pay.pay_play == 1 then
-                return '付费'
-            elseif pay.pay_play == 0 and pay.pay_down == 1 then
-                return '付费下载'
-            else
-                return '免费'
-            end
-        end
         local function getStr_timelong(iv)
             local a = {math.modf(iv/60)}
             return string.format('%s分%s秒',a[1],math.floor(60*a[2]))
@@ -495,7 +474,6 @@ QQMusic = {
             pLog:Info('—[%s]——————————————————————————',n)
             pLog:Info('名称：%s',cont.data.track_info.name)
             pLog:Info('歌手：%s',getStr_singerlist(cont.data.track_info.singer))
-            pLog:Info('限制情况：%s',getStr_feestat(cont.data.track_info.pay))
             pLog:Info('时长：%s',getStr_timelong(cont.data.track_info.interval))
             -- pLog:Info('类型：%s',getStr_coverType(cont.originCoverType))
             -- pLog:Info('版权：%s',getStr_copyright(cont.noCopyrightRcmd))
@@ -510,9 +488,123 @@ QQMusic = {
 }
 
 KuwoMusic = {
-    ApiAddr = 'https://music-kuwo.amd.rocks',
-    use = function ()
+    ApiAddr = 'http://iecoxe.top:5000', -- thank this public service.
+    DownUrl = 'http://iecoxe.top:5500',
+    use = function (dw)
         local sLog = Logger:new('Kuwo')
+        if dw == '1' then
+            sLog:Info('请输入单曲ID，如有多首请用逗号分割：')
+            io.write('(n) > ')
+            local need_download_ids = io.read()
+            string.gsub(need_download_ids,'，',',')
+            local details = {}
+            for n,id in pairs(string.split(need_download_ids,',')) do
+                local get = JSON.decode(HttpGet(string.format('%s/v1/kuwo/songInfo?rid=%s',KuwoMusic.ApiAddr,id)))
+                if get.code ~= 200 then
+                    mLog:Error('解析 detail 失败！')
+                    return
+                end
+                details[#details+1] = get.data
+            end
+            KuwoMusic.printMusicDetails(details,KuwoMusic.get_music)
+        elseif dw == '2' then
+            local pl_id = 0
+            sLog:Info('请输入需要下载的歌单ID：')
+            io.write('(n) > ')
+            pl_id = tonumber(io.read())
+            local pl_detail = JSON.decode(HttpGet(string.format('%s/v1/kuwo/playlist/info?pid=%s&limit=0',KuwoMusic.ApiAddr,pl_id)))
+            if not pl_detail then
+                sLog:Error('playlist 解析失败！')
+                return
+            end
+            if pl_detail.code == 200 then
+                sLog:Info('歌单已选定，名称：%s',pl_detail.data.name)
+                local a = HttpGet(string.format('%s/v1/kuwo/playlist/info?pid=%s&limit=%s',KuwoMusic.ApiAddr,pl_id,pl_detail.data.total))
+                print(a)
+                pl_detail = JSON.decode(a)
+            else
+                sLog:Info('获取歌单信息失败')
+                return
+            end
+            local list = pl_detail.data.musicList
+            if not list then
+                sLog:Error('playlist 解析失败！')
+                return
+            end
+            KuwoMusic.printMusicDetails(list,KuwoMusic.get_music)
+        end
+    end,
+    login = function()
+        --- no login.
+    end,
+    get_music = function (music)
+        local pLog = Logger:new('Download')
+
+        local brs = {2000,1000,320,192,128,96,48,24}
+        local link,fm;
+        for n,br in pairs(brs) do
+            local get = JSON.decode(HttpGet(string.format('%s/?rid=%s&br=%s',KuwoMusic.DownUrl,music.id,br)))
+            if get.code ~= 200 then
+                pLog:Warn('码率 '..br..' 不存在，切换为下一音质...')
+            else
+                link = get.url
+                fm = string.sub(link,string.len(link)-string.find(string.reverse(link),".",0,string.len(link))+2)
+                pLog:Info('正在下载歌曲 > %s(%s) ...',fm,br)
+                break
+            end
+        end
+
+        if not link then
+            pLog:Error('无法下载此歌曲！')
+            return
+        end
+
+        local file = Fs:open(string.format('download/%s.%s',music.name,fm),'w+b')
+        local result = HttpGet(link,{
+            writefunction = file
+        })
+        file:close()
+
+        if result then
+            KuwoMusic.get_lrc(music)
+        else
+            pLog:Error('下载失败！')
+        end
+    end,
+    get_lrc = function (music)
+        local pLog = Logger:new('Download')
+
+        pLog:Info('正在下载歌词 > lrc ...')
+        local result = JSON.decode(HttpGet(string.format('%s/v1/kuwo/lyric?rid=%s',KuwoMusic.ApiAddr,music.id)))
+        if not result then
+            pLog:Error('lrc 解析失败！')
+            return
+        end
+        local str = ''
+        if result.tlyric then
+            str = result.tlyric
+        elseif result.lyric_str then
+            str = result.lyric_str
+        else
+            pLog:Error('该歌曲没有歌词。')
+            return
+        end
+        Fs:writeTo(string.format('download/%s.lrc',music.name),str)
+    end,
+    printMusicDetails = function (details,callback)
+        local pLog = Logger:new('Detail')
+        for key,cont in pairs(details) do
+            pLog:Info('')
+            pLog:Info('—[%s]——————————————————————————',key)
+            pLog:Info('名称：%s',cont.name)
+            pLog:Info('歌手：%s',cont.artist)
+            pLog:Info('时长：%s',cont.songTimeMinutes)
+            pLog:Info('')
+            callback {
+                id = cont.rid,
+                name = string.delete(cont.name,'\\','/',':','?','*','"','<','>','|')
+            }
+        end
     end
 }
 

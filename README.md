@@ -4,5 +4,5 @@
 ### wip.
 - [x] netease music
 - [x] qq music
-- [ ] kuwo music
+- [x] kuwo music
 - [ ] config file

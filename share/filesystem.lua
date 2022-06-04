@@ -5,7 +5,7 @@
 --]] ----------------------------------------
 
 require "native-type-helper"
-local wf = require("winfile")
+local wf = require "winfile"
 
 Fs = {}
 local function directory(path)

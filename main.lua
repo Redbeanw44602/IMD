@@ -87,7 +87,9 @@ NeteaseMusic = {
             io.write('(n) > ')
             local need_download_ids = io.read()
             string.gsub(need_download_ids,'，',',')
-            local details = HttpGet(string.format('%s/song/detail?ids=%s&cookie=%s',NeteaseMusic.ApiAddr,need_download_ids,gl_using_cookie))
+            local details = HttpGet(string.format('%s/song/detail?ids=%s',NeteaseMusic.ApiAddr,need_download_ids),{
+                cookie = gl_using_cookie
+            })
             if not details then
                 mLog:Error('HttpGet 失败！')
                 return
@@ -102,8 +104,12 @@ NeteaseMusic = {
             local playlist_id = 0
             if gl_using_cookie ~= '' then
                 sLog:Info('选择一个歌单，也可以输入歌单ID：')
-                local uid = JSON.decode(HttpGet(string.format('%s/login/status?cookie=%s',NeteaseMusic.ApiAddr,gl_using_cookie))).data.account.id
-                local playlists = HttpGet(string.format('%s/user/playlist?uid=%s&cookie=%s',NeteaseMusic.ApiAddr,uid,gl_using_cookie))
+                local uid = JSON.decode(HttpGet(string.format('%s/login/status',NeteaseMusic.ApiAddr),{
+                    cookie = gl_using_cookie
+                })).data.account.id
+                local playlists = HttpGet(string.format('%s/user/playlist?uid=%s',NeteaseMusic.ApiAddr,uid),{
+                    cookie = gl_using_cookie
+                })
                 playlists = JSON.decode(playlists)
                 if not playlists then
                     sLog:Error('playlist 解析失败！')
@@ -126,7 +132,9 @@ NeteaseMusic = {
                 io.write('(n) > ')
                 playlist_id = tonumber(io.read())
             end
-            local playlist_detail = HttpGet(string.format('%s/playlist/detail?id=%s&cookie=%s',NeteaseMusic.ApiAddr,playlist_id,gl_using_cookie))
+            local playlist_detail = HttpGet(string.format('%s/playlist/detail?id=%s',NeteaseMusic.ApiAddr,playlist_id),{
+                cookie = gl_using_cookie
+            })
             playlist_detail = JSON.decode(playlist_detail)
             if not playlist_detail then
                 sLog:Error('playlist 解析失败！')
@@ -138,7 +146,9 @@ NeteaseMusic = {
                 sLog:Info('获取歌单信息失败')
                 return
             end
-            local list = HttpGet(string.format('%s/playlist/track/all?id=%s&cookie=%s',NeteaseMusic.ApiAddr,playlist_id,gl_using_cookie))
+            local list = HttpGet(string.format('%s/playlist/track/all?id=%s&cookie=%s',NeteaseMusic.ApiAddr,playlist_id),{
+                cookie = gl_using_cookie
+            })
             list = JSON.decode(list)
             if not list then
                 sLog:Error('playlist 解析失败！')
@@ -172,7 +182,9 @@ NeteaseMusic = {
 
         local cookie = Fs:readFrom(string.format('cookies/%s.%s',cookies[use_who_cookie],suffix))
         pLog:Info('正在检查登录...')
-        local login = HttpGet(string.format('%s/login/status?cookie=%s',NeteaseMusic.ApiAddr,cookie))
+        local login = HttpGet(string.format('%s/login/status',NeteaseMusic.ApiAddr),{
+            cookie = cookie
+        })
         if not login then
             mLog:Error('HttpGet失败！')
         end
@@ -196,7 +208,9 @@ NeteaseMusic = {
         local pLog = Logger:new('Download')
 
         --- down_music - method A:
-        local result = HttpGet(string.format('%s/song/url?id=%s&cookie=%s',NeteaseMusic.ApiAddr,music.id,gl_using_cookie))
+        local result = HttpGet(string.format('%s/song/url?id=%s',NeteaseMusic.ApiAddr,music.id){
+            cookie = gl_using_cookie
+        })
         result = JSON.decode(result)
         if result and result.data[1].url then
             local music_file = Fs:open(string.format('download/%s.%s',music.name,result.data[1].encodeType),'w+b')

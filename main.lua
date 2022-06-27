@@ -1,13 +1,15 @@
-package.path = package.path..';.\\share\\?.lua'
-package.cpath = package.cpath..';.\\lib\\?.dll'
+--[[ ----------------------------------------
 
+    [Main] IMD.
+
+--]] ----------------------------------------
+
+require "__init__"
+require "logger"
+require "native-type-helper"
 local Fs = require "filesystem"
 local curl = require "cURL"
 local JSON = require "JSON"
-require "logger"
-require "native-type-helper"
-
-os.execute('chcp 65001 > nul')
 
 local mLog = Logger:new('IMD')
 local gl_using_cookie = ''
@@ -18,8 +20,9 @@ mLog:Info('请问您想要下载什么平台的音乐？')
 mLog:Info('1. 网易云音乐')
 mLog:Info('2. QQ音乐')
 mLog:Info('3. 酷我音乐')
+mLog:Info('4. 酷狗音乐')
 
-io.write('(1-3) > ')
+io.write('(1-4) > ')
 local switched_music_platform = io.read()
 
 ----------------------------------
@@ -146,7 +149,7 @@ NeteaseMusic = {
                 sLog:Info('获取歌单信息失败')
                 return
             end
-            local list = HttpGet(string.format('%s/playlist/track/all?id=%s&cookie=%s',NeteaseMusic.ApiAddr,playlist_id),{
+            local list = HttpGet(string.format('%s/playlist/track/all?id=%s',NeteaseMusic.ApiAddr,playlist_id),{
                 cookie = gl_using_cookie
             })
             list = JSON.decode(list)
@@ -208,7 +211,7 @@ NeteaseMusic = {
         local pLog = Logger:new('Download')
 
         --- down_music - method A:
-        local result = HttpGet(string.format('%s/song/url?id=%s',NeteaseMusic.ApiAddr,music.id){
+        local result = HttpGet(string.format('%s/song/url?id=%s',NeteaseMusic.ApiAddr,music.id),{
             cookie = gl_using_cookie
         })
         result = JSON.decode(result)

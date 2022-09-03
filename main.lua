@@ -20,7 +20,8 @@ mLog:Info('请问您想要下载什么平台的音乐？')
 mLog:Info('1. 网易云音乐')
 mLog:Info('2. QQ音乐')
 mLog:Info('3. 酷我音乐')
-mLog:Info('4. 酷狗音乐')
+mLog:Info('4. Youtube')
+-- mLog:Info('4. 酷狗音乐')
 
 io.write('(1-4) > ')
 local switched_music_platform = io.read()
@@ -505,8 +506,8 @@ QQMusic = {
 }
 
 KuwoMusic = {
-    ApiAddr = 'http://iecoxe.top:5000', -- thank this public service.
-    DownUrl = 'http://iecoxe.top:5500',
+    ApiAddr = 'http://42.192.118.65:5000', -- thank this public service.
+    DownUrl = 'http://42.192.118.65:5500',
     use = function (dw)
         local sLog = Logger:new('Kuwo')
         if dw == '1' then
@@ -537,7 +538,6 @@ KuwoMusic = {
             if pl_detail.code == 200 then
                 sLog:Info('歌单已选定，名称：%s',pl_detail.data.name)
                 local a = HttpGet(string.format('%s/v1/kuwo/playlist/info?pid=%s&limit=%s',KuwoMusic.ApiAddr,pl_id,pl_detail.data.total))
-                print(a)
                 pl_detail = JSON.decode(a)
             else
                 sLog:Info('获取歌单信息失败')
@@ -625,12 +625,30 @@ KuwoMusic = {
     end
 }
 
+Youtube = {
+    ApiAddr = 'https://api.vevioz.com/file/mp3/',
+    use = function (dw)
+        
+    end,
+    get_lrc = function (music)
+        
+    end,
+    get_music = function (music)
+        
+    end,
+    printMusicDetails = function (details,callback)
+        
+    end
+}
+
 if switched_music_platform == '1' then
     ExecPf(NeteaseMusic)
 elseif switched_music_platform == '2' then
     ExecPf(QQMusic)
 elseif switched_music_platform == '3' then
     ExecPf(KuwoMusic)
+elseif switched_music_platform == '4' then
+    ExecPf(Youtube)
 else
     mLog:Error('输入错误！')
     return
